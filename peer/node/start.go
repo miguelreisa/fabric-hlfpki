@@ -287,6 +287,20 @@ func serve(args []string) error {
 
 	flogging.SetPeerStartupModulesMap()
 
+	// \FGODINHO -------------------------------------------------------
+
+
+	conn, err := net.Dial("unix", "/tmp/hlf-acp.sock")
+
+	if err != nil {
+		panic(fmt.Sprintf("Could not start connection pool to java component: %s", err))
+		return err
+	}
+
+	conn.Close()
+
+	// FGODINHO\ -------------------------------------------------------
+
 	// Block until grpc server exits
 	return <-serve
 }
