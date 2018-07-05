@@ -344,12 +344,10 @@ func serve(args []string) error {
 
 	// \FGODINHO -------------------------------------------------------
 
-
-	conn, err := net.Dial("unix", "/tmp/hlf-acp.sock")
+	conn, err := net.Dial("unix", "/tmp/hlf-xsp.sock")
 
 	if err != nil {
 		panic(fmt.Sprintf("Could not start connection pool to java component: %s", err))
-		return err
 	}
 
 	conn.Close()

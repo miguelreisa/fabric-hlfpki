@@ -124,6 +124,7 @@ func TestSign(t *testing.T) {
 
 	msg := []byte("Hello World!!!")
 	sigma, err := msgCryptoService.Sign(msg)
+	t.Log(string(sigma))
 	assert.NoError(t, err, "Failed generating signature")
 	assert.NotNil(t, sigma, "Signature must be different from nil")
 }
