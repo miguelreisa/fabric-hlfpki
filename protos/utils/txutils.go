@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 
 	"bytes"
@@ -279,11 +280,17 @@ type xspSignMsg struct {
 
 func Sign(msg []byte) (signature []byte, err error) {
 
+	// first hash the msg
 	hasher := sha1.New()
 	hasher.Write(msg)
 	digest := base64.URLEncoding.EncodeToString(hasher.Sum(nil))
 
-	shareBytes := []byte("AAAAAQAAAJAMVssN0DYN8YCDQI2zBEPNgDypiq+xRCpQS4dISjzpN2xa8mUBshUgeKl6zHIJpRancLbiFXoh6i/bMC5iRRqsVXh6od11NWBMx6lhq4QCjGM7GEiNghkEoBL5pF6Qlnwy2Oh0nOyu7n/n9c/3YaABAWVdldmPWWLgoFFgMeL+2B8K0xhCqJ6WjFC2VLCQr3QAAACAXJAPiQQVmP1Vcbkg9jNzylOh6TSqvgmkP/Ywql9of9waEBg6EydMoFqiZUsFAq5GJemP8ztyNNdNELCSStNzaMcr198Yz8IRPKjuF2VHQqnj08sKvuWEvgeuyLjJV+u7OScZM8wmyb74usfVSE/6WC3VnjsLQC1btDxGjBNkfq0AAAACAtAAAACARi7NSP/svwt9K6vkuJOKgjdfe0UDFc3qGX4b+uTtkWytOC9GAlRV7YCSeY0YZg5IBfzvf9nuEiL55gxqiDk/9O5G0T1a6bLMxIPsK6tML3KVzRwc4kA4w6DraQAIqVXGhbB/QjvHVqFuATCT+PPpWGVNFsDwjtH3EcQfLuXpie0AAACAMl3/2LGK3BmEzEQoWc+ejD4xLPuwo7KpLkAdjl5eIpKN1WNj4GIH/oQqBG3+NmqG9HlqBsNl0zrVk6n3CJZcaSJm2qI4tfKSQG6h4E/E6Q3Vtc+1TdGRXftLBBSD0l//F3p+iYXprZRlOGGkopJ02wPbSg+unFP9cpLwqMJOWmM=")
+	shareEnvVar, isSet := os.LookupEnv("THRESH_SIG_KEY_SHARE")
+	if !isSet {
+		return nil, fmt.Errorf("Could not obtain key share from environment variable: THRESH_SIG_KEY_SHARE")
+	}
+
+	shareBytes := []byte(shareEnvVar)
 
 	// open unix domain socket connection
 	conn, err := net.Dial("unix", "/tmp/hlf-xsp.sock")
