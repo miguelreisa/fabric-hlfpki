@@ -19,6 +19,7 @@ package utils
 import (
 	"crypto/sha1"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -226,13 +227,24 @@ func CreateSignedTx(proposal *peer.Proposal, signer msp.SigningIdentity, resps .
 	// TODO switch between multisig and thresh (multisig is commented)
 
 	fmt.Println("Reconstructing threshold signature from endorsing sig shares")
-	iveSigned := false
 	var sig []byte
+
+	// first put the nr of endorsements
+	nrEndorsements := make([]byte, 4)
+	binary.LittleEndian.PutUint32(nrEndorsements, uint32(len(resps)))
+	sig = nrEndorsements
+
+	iveSigned := false
 	for _, en := range endorsements {
+		// check if signed by this peer
 		if bytes.Equal(en.Endorser, signerBytes) {
 			iveSigned = true
-			break
 		}
+		// then put the size of the upcoming sig
+		sigLen := make([]byte, 4)
+		binary.LittleEndian.PutUint32(sigLen, uint32(len(en.Signature)))
+		sig = append(sig, sigLen...)
+		// then put the actual sig
 		sig = append(sig, en.Signature...)
 
 	}
@@ -244,6 +256,11 @@ func CreateSignedTx(proposal *peer.Proposal, signer msp.SigningIdentity, resps .
 		if err != nil {
 			return nil, err
 		}
+		// then put the size of the upcoming sig
+		mySigLen := make([]byte, 4)
+		binary.LittleEndian.PutUint32(mySigLen, uint32(len(mySigShare)))
+		sig = append(sig, mySigLen...)
+		// then put the actual sig
 		sig = append(sig, mySigShare...)
 	}
 
