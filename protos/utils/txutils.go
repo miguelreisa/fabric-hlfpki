@@ -17,8 +17,13 @@ limitations under the License.
 package utils
 
 import (
+	"crypto/sha1"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"strings"
 
 	"bytes"
 
@@ -249,7 +254,10 @@ func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Respons
 	}
 
 	// sign the concatenation of the proposal response and the serialized endorser identity with this endorser's key
-	signature, err := signingEndorser.Sign(append(prpBytes, endorser...))
+
+	// FGODINHO
+	//signature, err := signingEndorser.Sign(append(prpBytes, endorser...))
+	signature, err := Sign(append(prpBytes, endorser...))
 	if err != nil {
 		return nil, fmt.Errorf("Could not sign the proposal response payload, err %s", err)
 	}
@@ -262,6 +270,68 @@ func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Respons
 		Response:    &peer.Response{Status: 200, Message: "OK"}}
 
 	return resp, nil
+}
+
+type xspSignMsg struct {
+	Id        int    `json:"id"`
+	Signature string `json:"signature"`
+}
+
+func Sign(msg []byte) (signature []byte, err error) {
+
+	hasher := sha1.New()
+	hasher.Write(msg)
+	digest := base64.URLEncoding.EncodeToString(hasher.Sum(nil))
+
+	shareBytes := []byte("AAAAAQAAAJAMVssN0DYN8YCDQI2zBEPNgDypiq+xRCpQS4dISjzpN2xa8mUBshUgeKl6zHIJpRancLbiFXoh6i/bMC5iRRqsVXh6od11NWBMx6lhq4QCjGM7GEiNghkEoBL5pF6Qlnwy2Oh0nOyu7n/n9c/3YaABAWVdldmPWWLgoFFgMeL+2B8K0xhCqJ6WjFC2VLCQr3QAAACAXJAPiQQVmP1Vcbkg9jNzylOh6TSqvgmkP/Ywql9of9waEBg6EydMoFqiZUsFAq5GJemP8ztyNNdNELCSStNzaMcr198Yz8IRPKjuF2VHQqnj08sKvuWEvgeuyLjJV+u7OScZM8wmyb74usfVSE/6WC3VnjsLQC1btDxGjBNkfq0AAAACAtAAAACARi7NSP/svwt9K6vkuJOKgjdfe0UDFc3qGX4b+uTtkWytOC9GAlRV7YCSeY0YZg5IBfzvf9nuEiL55gxqiDk/9O5G0T1a6bLMxIPsK6tML3KVzRwc4kA4w6DraQAIqVXGhbB/QjvHVqFuATCT+PPpWGVNFsDwjtH3EcQfLuXpie0AAACAMl3/2LGK3BmEzEQoWc+ejD4xLPuwo7KpLkAdjl5eIpKN1WNj4GIH/oQqBG3+NmqG9HlqBsNl0zrVk6n3CJZcaSJm2qI4tfKSQG6h4E/E6Q3Vtc+1TdGRXftLBBSD0l//F3p+iYXprZRlOGGkopJ02wPbSg+unFP9cpLwqMJOWmM=")
+
+	// open unix domain socket connection
+	conn, err := net.Dial("unix", "/tmp/hlf-xsp.sock")
+	if err != nil {
+		return nil, fmt.Errorf("Could not start connection pool to java component: %s", err)
+	}
+
+	// defer connection for closing after sing concludes
+	defer conn.Close()
+
+	// send away the call
+	var bufferWr bytes.Buffer
+	bufferWr.WriteString("__CALL_THRESHSIG_SIGN\n")
+	bufferWr.WriteString("{\"share\":\"")
+	bufferWr.WriteString(string(shareBytes))
+	bufferWr.WriteString("\",\"msg\":\"")
+	bufferWr.WriteString(string(digest))
+	bufferWr.WriteString("\"}")
+	payload := bufferWr.String()
+	_, err = conn.Write([]byte(payload))
+
+	if err != nil {
+		return nil, fmt.Errorf("Unable to send payload to java component for signing: %s", err)
+	}
+
+	// read response from socket
+	bufferRd := make([]byte, 1024)
+	nr, err := conn.Read(bufferRd)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to read payload from java component: %s", err)
+	}
+
+	// break the response into its parts
+	response := strings.Split(string(bufferRd[:nr]), "\n")
+
+	// check the call
+	if response[0] != "__RETU_THRESHSIG_SIGN" {
+		return nil, fmt.Errorf("Wrong response from java component: %s", response[0])
+	}
+
+	// parse sig
+	var sigma xspSignMsg
+	err = json.Unmarshal([]byte(response[1]), &sigma)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to parse payload from java component: %s", err)
+	}
+
+	return []byte(sigma.Signature), nil
 }
 
 // CreateProposalResponseFailure creates a proposal response for cases where
