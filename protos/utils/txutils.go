@@ -219,11 +219,38 @@ func CreateSignedTx(proposal *peer.Proposal, signer msp.SigningIdentity, resps .
 		return nil, err
 	}
 
-	// sign the payload
-	sig, err := signer.Sign(paylBytes)
-	if err != nil {
-		return nil, err
+	// sign the payload, maybe
+
+	// FGODINHO
+	// here we reconstruct a signature from endorsements and our own signature
+	// TODO switch between multisig and thresh (multisig is commented)
+
+	fmt.Println("Reconstructing threshold signature from endorsing sig shares")
+	iveSigned := false
+	var sig []byte
+	for _, en := range endorsements {
+		if bytes.Equal(en.Endorser, signerBytes) {
+			iveSigned = true
+			break
+		}
+		sig = append(sig, en.Signature...)
+
 	}
+
+	// this peer has not signed yet, append its signature
+	if !iveSigned {
+		fmt.Println("Adding submitting peer own sig share to signature")
+		mySigShare, err := signThresh(append(paylBytes, signerBytes...))
+		if err != nil {
+			return nil, err
+		}
+		sig = append(sig, mySigShare...)
+	}
+
+	// sig, err := signer.Sign(paylBytes)
+	// if err != nil {
+	// 	return nil, err
+	// }
 
 	// here's the envelope
 	return &common.Envelope{Payload: paylBytes, Signature: sig}, nil
@@ -257,8 +284,11 @@ func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Respons
 	// sign the concatenation of the proposal response and the serialized endorser identity with this endorser's key
 
 	// FGODINHO
-	//signature, err := signingEndorser.Sign(append(prpBytes, endorser...))
-	signature, err := Sign(append(prpBytes, endorser...))
+	// this is the endorsement phase. here, each peer endorses the tx with his sig share
+	// TODO: switch between multisig and this one
+	//
+	// signature, err := signingEndorser.Sign(append(prpBytes, endorser...))
+	signature, err := signThresh(append(prpBytes, endorser...))
 	if err != nil {
 		return nil, fmt.Errorf("Could not sign the proposal response payload, err %s", err)
 	}
@@ -278,7 +308,7 @@ type xspSignMsg struct {
 	Signature string `json:"signature"`
 }
 
-func Sign(msg []byte) (signature []byte, err error) {
+func signThresh(msg []byte) (signature []byte, err error) {
 
 	// first hash the msg
 	hasher := sha1.New()
