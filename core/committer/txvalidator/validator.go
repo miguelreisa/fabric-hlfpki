@@ -846,7 +846,7 @@ func (v *vsccValidatorImpl) VSCCValidateTxForCC(envBytes []byte, txid, chid, vsc
 		return &commonerrors.VSCCExecutionFailureError{msg}
 	}
 	if res.Status != shim.OK {
-		// return &commonerrors.VSCCEndorsementPolicyError{fmt.Sprintf("%s", res.Message)}
+		return &commonerrors.VSCCEndorsementPolicyError{fmt.Sprintf("%s", res.Message)}
 	}
 
 	return nil

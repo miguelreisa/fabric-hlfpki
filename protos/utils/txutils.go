@@ -19,7 +19,6 @@ package utils
 import (
 	"crypto/sha1"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -220,54 +219,53 @@ func CreateSignedTx(proposal *peer.Proposal, signer msp.SigningIdentity, resps .
 		return nil, err
 	}
 
-	// sign the payload, maybe
+	// // FGODINHO
+	// // here we reconstruct a signature from endorsements and our own signature
+	// // TODO switch between multisig and thresh (multisig is commented)
 
-	// FGODINHO
-	// here we reconstruct a signature from endorsements and our own signature
-	// TODO switch between multisig and thresh (multisig is commented)
+	// fmt.Println("Reconstructing threshold signature from endorsing sig shares")
+	// var sig []byte
 
-	fmt.Println("Reconstructing threshold signature from endorsing sig shares")
-	var sig []byte
+	// // first put the nr of endorsements
+	// nrEndorsements := make([]byte, 4)
+	// binary.LittleEndian.PutUint32(nrEndorsements, uint32(len(resps)))
+	// sig = nrEndorsements
 
-	// first put the nr of endorsements
-	nrEndorsements := make([]byte, 4)
-	binary.LittleEndian.PutUint32(nrEndorsements, uint32(len(resps)))
-	sig = nrEndorsements
+	// iveSigned := false
+	// for _, en := range endorsements {
+	// 	// check if signed by this peer
+	// 	if bytes.Equal(en.Endorser, signerBytes) {
+	// 		iveSigned = true
+	// 	}
+	// 	// then put the size of the upcoming sig
+	// 	sigLen := make([]byte, 4)
+	// 	binary.LittleEndian.PutUint32(sigLen, uint32(len(en.Signature)))
+	// 	sig = append(sig, sigLen...)
+	// 	// then put the actual sig
+	// 	sig = append(sig, en.Signature...)
 
-	iveSigned := false
-	for _, en := range endorsements {
-		// check if signed by this peer
-		if bytes.Equal(en.Endorser, signerBytes) {
-			iveSigned = true
-		}
-		// then put the size of the upcoming sig
-		sigLen := make([]byte, 4)
-		binary.LittleEndian.PutUint32(sigLen, uint32(len(en.Signature)))
-		sig = append(sig, sigLen...)
-		// then put the actual sig
-		sig = append(sig, en.Signature...)
-
-	}
-
-	// this peer has not signed yet, append its signature
-	if !iveSigned {
-		fmt.Println("Adding submitting peer own sig share to signature")
-		mySigShare, err := signThresh(append(paylBytes, signerBytes...))
-		if err != nil {
-			return nil, err
-		}
-		// then put the size of the upcoming sig
-		mySigLen := make([]byte, 4)
-		binary.LittleEndian.PutUint32(mySigLen, uint32(len(mySigShare)))
-		sig = append(sig, mySigLen...)
-		// then put the actual sig
-		sig = append(sig, mySigShare...)
-	}
-
-	// sig, err := signer.Sign(paylBytes)
-	// if err != nil {
-	// 	return nil, err
 	// }
+
+	// // this peer has not signed yet, append its signature
+	// if !iveSigned {
+	// 	fmt.Println("Adding submitting peer own sig share to signature")
+	// 	mySigShare, err := signThresh(append(paylBytes, signerBytes...))
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	// then put the size of the upcoming sig
+	// 	mySigLen := make([]byte, 4)
+	// 	binary.LittleEndian.PutUint32(mySigLen, uint32(len(mySigShare)))
+	// 	sig = append(sig, mySigLen...)
+	// 	// then put the actual sig
+	// 	sig = append(sig, mySigShare...)
+	// }
+
+	// sign the payload
+	sig, err := signer.Sign(paylBytes)
+	if err != nil {
+		return nil, err
+	}
 
 	// here's the envelope
 	return &common.Envelope{Payload: paylBytes, Signature: sig}, nil
