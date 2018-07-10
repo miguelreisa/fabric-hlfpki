@@ -108,11 +108,13 @@ func compile(policy *cb.SignaturePolicy, identities []*mb.MSPPrincipal, deserial
 					continue
 				}
 				cauthdslLogger.Debugf("%p principal matched by identity %d", signedData, i)
-				err = identity.Verify(sd.Data, sd.Signature)
-				if err != nil {
-					cauthdslLogger.Debugf("%p signature for identity %d is invalid: %s", signedData, i, err)
-					continue
-				}
+
+				// FGODINHO TODO: Uncomment this. This makes no sense for thresh sig, but it does for multisig
+				// err = identity.Verify(sd.Data, sd.Signature)
+				// if err != nil {
+				// 	cauthdslLogger.Debugf("%p signature for identity %d is invalid: %s", signedData, i, err)
+				// 	continue
+				// }
 				cauthdslLogger.Debugf("%p principal evaluation succeeds for identity %d", signedData, i)
 				used[i] = true
 				return true
