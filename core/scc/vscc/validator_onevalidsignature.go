@@ -171,7 +171,7 @@ func (vscc *ValidatorOneValidSignature) Invoke(stub shim.ChaincodeStubInterface)
 			return shim.Error(err.Error())
 		}
 
-		logger.Errorf("FGODINHO!!! signatureSet size %d", len(signatureSet))
+		// logger.Errorf("FGODINHO!!! signatureSet size %d", len(signatureSet))
 
 		// evaluate the signature set against the policy
 		err = policy.Evaluate(signatureSet)
