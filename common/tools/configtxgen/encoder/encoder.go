@@ -163,6 +163,7 @@ func NewOrdererGroup(conf *genesisconfig.Orderer) (*cb.ConfigGroup, error) {
 	switch conf.OrdererType {
 	case ConsensusTypeSolo:
 	case ConsensusTypeKafka:
+		addValue(ordererGroup, channelconfig.KafkaBrokersValue(conf.Kafka.Brokers), channelconfig.AdminsPolicyKey)
 	case ConsensusTypeBFTsmart: //JCS: added bftsmart type
 		addValue(ordererGroup, channelconfig.KafkaBrokersValue(conf.Kafka.Brokers), channelconfig.AdminsPolicyKey)
 	default:
