@@ -303,7 +303,7 @@ func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Respons
 	// TODO: switch between multisig and this one
 	//
 	// signature, err := signingEndorser.Sign(append(prpBytes, endorser...))
-	signature, err := signThresh(append(prpBytes, endorser...))
+	signature, err := signThresh(prpBytes)
 	if err != nil {
 		return nil, fmt.Errorf("Could not sign the proposal response payload, err %s", err)
 	}
