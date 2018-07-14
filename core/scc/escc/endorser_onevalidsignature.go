@@ -154,11 +154,31 @@ func (e *EndorserOneValidSignature) Invoke(stub shim.ChaincodeStubInterface) pb.
 		return shim.Error(fmt.Sprintf("Could not obtain the default signing identity, err %s", err))
 	}
 
+	// FGODINHO
+	// if it's a system chaincode just go with multisig
+	var sigMethod []byte
+	if ccid.GetName() == "lscc" || ccid.GetName() == "cscc" {
+		sigMethod = []byte("multisig")
+	} else {
+		// compose chaincode args for get endorsement method
+		ccargs := make([][]byte, 1, 1)
+		ccargs[0] = []byte("getEndorsementMethod")
+
+		// we call this function on any contract to find out its signing method and pass it to createproposalresponse
+		sigMethodRsp := stub.InvokeChaincode(ccid.GetName(), ccargs, stub.GetChannelID())
+		if sigMethodRsp.Status != 200 {
+			return shim.Error(fmt.Sprintf("Could not obtain the endorsement method from contract %s on channel %s", ccid.GetName(), stub.GetChannelID()))
+		}
+		sigMethod = sigMethodRsp.Payload
+	}
+
 	// obtain a proposal response
-	presp, err := utils.CreateProposalResponse(hdr, payl, response, results, events, ccid, visibility, signingEndorser)
+	presp, err := utils.CreateProposalResponse(hdr, payl, response, results, events, ccid, visibility, signingEndorser, sigMethod)
 	if err != nil {
 		return shim.Error(err.Error())
 	}
+
+	// /FGODINHO
 
 	// marshall the proposal response so that we return its bytes
 	prBytes, err := utils.GetBytesProposalResponse(presp)

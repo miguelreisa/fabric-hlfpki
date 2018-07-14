@@ -272,7 +272,7 @@ func CreateSignedTx(proposal *peer.Proposal, signer msp.SigningIdentity, resps .
 }
 
 // CreateProposalResponse creates a proposal response.
-func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Response, results []byte, events []byte, ccid *peer.ChaincodeID, visibility []byte, signingEndorser msp.SigningIdentity) (*peer.ProposalResponse, error) {
+func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Response, results []byte, events []byte, ccid *peer.ChaincodeID, visibility []byte, signingEndorser msp.SigningIdentity, signingMethod []byte) (*peer.ProposalResponse, error) {
 	hdr, err := GetHeader(hdrbytes)
 	if err != nil {
 		return nil, err
@@ -300,10 +300,17 @@ func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Respons
 
 	// FGODINHO
 	// this is the endorsement phase. here, each peer endorses the tx with his sig share
-	// TODO: switch between multisig and this one
-	//
-	// signature, err := signingEndorser.Sign(append(prpBytes, endorser...))
-	signature, err := signThresh(prpBytes)
+
+	sigMethod := string(signingMethod)
+	// switch between multisig and threshsig
+
+	var signature []byte
+	if sigMethod == "multisig" {
+		signature, err = signingEndorser.Sign(append(prpBytes, endorser...))
+	} else if sigMethod == "threshsig" {
+		signature, err = signThresh(prpBytes)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("Could not sign the proposal response payload, err %s", err)
 	}

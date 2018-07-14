@@ -17,7 +17,6 @@ limitations under the License.
 package lockbasedtxmgr
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/hyperledger/fabric/core/ledger/kvledger/txmgmt/txmgr"
@@ -202,7 +201,9 @@ func (h *queryHelper) done() {
 
 func (h *queryHelper) checkDone() error {
 	if h.doneInvoked {
-		return errors.New("This instance should not be used after calling Done()")
+		// FGODINHO
+		// commented as we need to invoke chaincode more than once to identify how to sign transactions over it
+		// return errors.New("This instance should not be used after calling Done()")
 	}
 	return nil
 }
