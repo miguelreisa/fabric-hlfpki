@@ -39,7 +39,31 @@ func (pr *provider) NewPolicy(data []byte) (policies.Policy, proto.Message, erro
 		return nil, nil, fmt.Errorf("This evaluator only understands messages of version 0, but version was %d", sigPolicy.Version)
 	}
 
-	compiled, err := compile(sigPolicy.Rule, sigPolicy.Identities, pr.deserializer)
+	compiled, err := compile(sigPolicy.Rule, sigPolicy.Identities, pr.deserializer, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return &policy{
+		evaluator:    compiled,
+		deserializer: pr.deserializer,
+	}, sigPolicy, nil
+
+}
+
+// FGODINHO
+// NewPolicy creates a new policy based on the policy bytes and on a sig method
+func (pr *provider) NewPolicyWith(data []byte, sigMethod []byte) (policies.Policy, proto.Message, error) {
+	sigPolicy := &cb.SignaturePolicyEnvelope{}
+	if err := proto.Unmarshal(data, sigPolicy); err != nil {
+		return nil, nil, fmt.Errorf("Error unmarshaling to SignaturePolicy: %s", err)
+	}
+
+	if sigPolicy.Version != 0 {
+		return nil, nil, fmt.Errorf("This evaluator only understands messages of version 0, but version was %d", sigPolicy.Version)
+	}
+
+	compiled, err := compile(sigPolicy.Rule, sigPolicy.Identities, pr.deserializer, sigMethod)
 	if err != nil {
 		return nil, nil, err
 	}

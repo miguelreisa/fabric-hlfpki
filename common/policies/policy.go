@@ -71,6 +71,10 @@ type Manager interface {
 type Provider interface {
 	// NewPolicy creates a new policy based on the policy bytes
 	NewPolicy(data []byte) (Policy, proto.Message, error)
+
+	// FGODINHO
+	// NewPolicy creates a new policy based on the policy bytes and on a sig method
+	NewPolicyWith(data []byte, sigMethod []byte) (Policy, proto.Message, error)
 }
 
 // ChannelPolicyManagerGetter is a support interface

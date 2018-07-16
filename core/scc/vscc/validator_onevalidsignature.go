@@ -18,7 +18,14 @@ package vscc
 
 import (
 	"bytes"
+	"crypto/sha1"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"net"
+	"os"
+	"strconv"
+	"strings"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/common/cauthdsl"
@@ -136,10 +143,33 @@ func (vscc *ValidatorOneValidSignature) Invoke(stub shim.ChaincodeStubInterface)
 		return shim.Error(err.Error())
 	}
 
+	hdrExt, err := utils.GetChaincodeHeaderExtension(payl.Header)
+	if err != nil {
+		logger.Errorf("VSCC error: GetChaincodeHeaderExtension failed, err %s", err)
+		return shim.Error(err.Error())
+	}
+
+	// FGODINHO
+	// if it's a system chaincode just go with multisig
+	var sigMethod []byte
+	if hdrExt.ChaincodeId.GetName() == "lscc" || hdrExt.ChaincodeId.GetName() == "cscc" {
+		sigMethod = []byte("multisig")
+	} else {
+		// get signature method from envelope
+		sigMethod = env.GetEndorsementMethod()
+
+		if sigMethod == nil {
+			shim.Error(fmt.Sprintf("Envelope signature method is nil!"))
+		}
+
+		logger.Debugf("Got signature method from envelope: %s", string(sigMethod))
+	}
+	// /FGODINHO
+
 	// get the policy
 	mgr := mspmgmt.GetManagerForChain(chdr.ChannelId)
 	pProvider := cauthdsl.NewPolicyProvider(mgr)
-	policy, _, err := pProvider.NewPolicy(args[2])
+	policy, _, err := pProvider.NewPolicyWith(args[2], sigMethod) // FGODINHO: added sigmethod
 	if err != nil {
 		logger.Errorf("VSCC error: pProvider.NewPolicy failed, err %s", err)
 		return shim.Error(err.Error())
@@ -171,7 +201,37 @@ func (vscc *ValidatorOneValidSignature) Invoke(stub shim.ChaincodeStubInterface)
 			return shim.Error(err.Error())
 		}
 
-		// logger.Errorf("FGODINHO!!! signatureSet size %d", len(signatureSet))
+		// FGODINHO
+		// if it's a threshold sig we evaluate here rather than in the built-in HLF policy
+		if len(signatureSet) > 0 && sigMethod != nil && strings.Contains(string(sigMethod), "threshsig") {
+
+			// obtain k thresh parameter
+			k, err := strconv.Atoi(strings.Split(string(sigMethod), "-")[1])
+			if err != nil {
+				shim.Error(fmt.Sprintf("Error evaluating threshold signature k value"))
+			}
+
+			// obtain signatures to feed into verify function
+			// as well as the originally signed data
+			signatures := make([][]byte, 0, len(signatureSet))
+			var digest []byte
+			for _, signedData := range signatureSet {
+				signatures = append(signatures, signedData.Signature)
+				if digest == nil {
+					digest = signedData.Data
+				} else if bytes.Compare(digest, signedData.Data) != 0 {
+					shim.Error(fmt.Sprintf("Threshold signature endorsements do not apply to the same data!"))
+				}
+			}
+
+			// verify
+			err = verifyThresh(k, signatures, digest)
+
+			if err != nil {
+				shim.Error(fmt.Sprintf("Error evaluating signatures: %s", err))
+			}
+		}
+		// /FGODINHO
 
 		// evaluate the signature set against the policy
 		err = policy.Evaluate(signatureSet)
@@ -182,12 +242,6 @@ func (vscc *ValidatorOneValidSignature) Invoke(stub shim.ChaincodeStubInterface)
 				return shim.Error(DUPLICATED_IDENTITY_ERROR)
 			}
 			return shim.Error(fmt.Sprintf("VSCC error: endorsement policy failure, err: %s", err))
-		}
-
-		hdrExt, err := utils.GetChaincodeHeaderExtension(payl.Header)
-		if err != nil {
-			logger.Errorf("VSCC error: GetChaincodeHeaderExtension failed, err %s", err)
-			return shim.Error(err.Error())
 		}
 
 		// do some extra validation that is specific to lscc
@@ -608,4 +662,89 @@ func (vscc *ValidatorOneValidSignature) deduplicateIdentity(cap *pb.ChaincodeAct
 
 	logger.Debugf("Signature set is of size %d out of %d endorsement(s)", len(signatureSet), len(cap.Action.Endorsements))
 	return signatureSet, nil
+}
+
+type xspVerifyMsg struct {
+	Valid bool `json:"valid"`
+}
+
+func verifyThresh(k int, signatures [][]byte, msg []byte) (err error) {
+
+	// first hash the msg
+	hasher := sha1.New()
+	hasher.Write(msg)
+	digest := base64.URLEncoding.EncodeToString(hasher.Sum(nil))
+
+	groupKeyEnvVar, isSet := os.LookupEnv("THRESH_SIG_GROUP_KEY")
+	if !isSet {
+		return fmt.Errorf("Could not obtain key share from environment variable: THRESH_SIG_GROUP_KEY")
+	}
+
+	groupKeyBytes := []byte(groupKeyEnvVar)
+
+	// open unix domain socket connection
+	conn, err := net.Dial("unix", "/tmp/hlf-xsp.sock")
+	if err != nil {
+		return fmt.Errorf("Could not start connection pool to java component: %s", err)
+	}
+
+	// defer connection for closing after sing concludes
+	defer conn.Close()
+
+	// TODO make all possible permutations of signatures until return true is achieved
+	if k < len(signatures) {
+		excess := len(signatures) - k
+		signatures = signatures[excess:]
+	}
+
+	// send away the call
+	var bufferWr bytes.Buffer
+	bufferWr.WriteString("__CALL_THRESHSIG_VERI\n")
+	bufferWr.WriteString("{\"group-key\":\"")
+	bufferWr.WriteString(string(groupKeyBytes))
+	bufferWr.WriteString("\",\"signatures\":[")
+	for ix, sig := range signatures {
+		bufferWr.WriteString("\"")
+		bufferWr.WriteString(string(sig))
+		bufferWr.WriteString("\"")
+		if ix < len(signatures)-1 {
+			bufferWr.WriteString(",")
+		}
+	}
+	bufferWr.WriteString("],\"msg\":\"")
+	bufferWr.WriteString(string(digest))
+	bufferWr.WriteString("\"}")
+	payload := bufferWr.String()
+	_, err = conn.Write([]byte(payload))
+
+	if err != nil {
+		return fmt.Errorf("Unable to send payload to java component for verification: %s", err)
+	}
+
+	// read response from socket
+	bufferRd := make([]byte, 1024)
+	nr, err := conn.Read(bufferRd)
+	if err != nil {
+		return fmt.Errorf("Unable to read payload from java component: %s", err)
+	}
+
+	// break the response into its parts
+	response := strings.Split(string(bufferRd[:nr]), "\n")
+
+	// check the call
+	if response[0] != "__RETU_THRESHSIG_VERI" {
+		return fmt.Errorf("Wrong response from java component: %s", response[0])
+	}
+
+	// parse verify result
+	var delta xspVerifyMsg
+	err = json.Unmarshal([]byte(response[1]), &delta)
+	if err != nil {
+		return fmt.Errorf("Unable to parse payload from java component: %s", err)
+	}
+
+	if !delta.Valid {
+		return fmt.Errorf("Verification of threshold signature failed")
+	}
+	return nil
 }

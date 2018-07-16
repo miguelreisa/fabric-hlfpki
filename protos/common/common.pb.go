@@ -365,6 +365,8 @@ type Envelope struct {
 	Payload []byte `protobuf:"bytes,1,opt,name=payload,proto3" json:"payload,omitempty"`
 	// A signature by the creator specified in the Payload header
 	Signature []byte `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
+	// FGODINHO Endorsement method to be set by interfacing API
+	EndorsementMethod []byte `protobuf:"bytes,3,opt,name=endorsement_method,proto3" json:"endorsement-method,omitempty"`
 }
 
 func (m *Envelope) Reset()                    { *m = Envelope{} }
@@ -382,6 +384,13 @@ func (m *Envelope) GetPayload() []byte {
 func (m *Envelope) GetSignature() []byte {
 	if m != nil {
 		return m.Signature
+	}
+	return nil
+}
+
+func (m *Envelope) GetEndorsementMethod() []byte {
+	if m != nil {
+		return m.EndorsementMethod
 	}
 	return nil
 }

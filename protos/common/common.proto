@@ -141,6 +141,9 @@ message Envelope {
 
     // A signature by the creator specified in the Payload header
     bytes signature = 2;
+    
+    // FGODINHO: endorsement method
+    bytes endorsement_method = 3;
 }
 
 // This is finalized block structure to be shared among the orderer and peer
