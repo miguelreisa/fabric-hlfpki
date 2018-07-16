@@ -691,12 +691,6 @@ func verifyThresh(k int, signatures [][]byte, msg []byte) (err error) {
 	// defer connection for closing after sing concludes
 	defer conn.Close()
 
-	// TODO make all possible permutations of signatures until return true is achieved
-	if k < len(signatures) {
-		excess := len(signatures) - k
-		signatures = signatures[excess:]
-	}
-
 	// send away the call
 	var bufferWr bytes.Buffer
 	bufferWr.WriteString("__CALL_THRESHSIG_VERI\n")
