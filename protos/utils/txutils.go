@@ -318,7 +318,7 @@ func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Respons
 	resp := &peer.ProposalResponse{
 		// Timestamp: TODO!
 		Version:     1, // TODO: pick right version number
-		Endorsement: &peer.Endorsement{Signature: signature, Endorser: endorser},
+		Endorsement: &peer.Endorsement{Signature: signature, Endorser: endorser, EndorsementMethod: signingMethod},
 		Payload:     prpBytes,
 		Response:    &peer.Response{Status: 200, Message: "OK"}}
 

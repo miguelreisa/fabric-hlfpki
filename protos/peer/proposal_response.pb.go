@@ -178,6 +178,8 @@ type Endorsement struct {
 	// Signature of the payload included in ProposalResponse concatenated with
 	// the endorser's certificate; ie, sign(ProposalResponse.payload + endorser)
 	Signature []byte `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"`
+	// FGODINHO Endorsement method to be set by interfacing API
+	EndorsementMethod []byte `protobuf:"bytes,3,opt,name=endorsement_method,proto3" json:"endorsement-method,omitempty"`
 }
 
 func (m *Endorsement) Reset()                    { *m = Endorsement{} }
@@ -195,6 +197,13 @@ func (m *Endorsement) GetEndorser() []byte {
 func (m *Endorsement) GetSignature() []byte {
 	if m != nil {
 		return m.Signature
+	}
+	return nil
+}
+
+func (m *Endorsement) GetEndorsementMethod() []byte {
+	if m != nil {
+		return m.EndorsementMethod
 	}
 	return nil
 }

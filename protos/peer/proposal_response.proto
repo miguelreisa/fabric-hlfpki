@@ -116,4 +116,7 @@ message Endorsement {
 	// Signature of the payload included in ProposalResponse concatenated with
 	// the endorser's certificate; ie, sign(ProposalResponse.payload + endorser)
 	bytes signature = 2;
+	
+	// FGODINHO Endorsement method to be set by interfacing API
+	bytes endorsement_method = 3;
 }
