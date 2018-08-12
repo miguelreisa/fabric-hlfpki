@@ -29,6 +29,7 @@ import (
 )
 
 var logger = flogging.MustGetLogger("escc")
+var cCSigMethods map[string][]byte // FGODINHO
 
 // EndorserOneValidSignature implements the default endorsement policy, which is to
 // sign the proposal hash and the read-write set
@@ -37,8 +38,8 @@ type EndorserOneValidSignature struct {
 
 // Init is called once when the chaincode started the first time
 func (e *EndorserOneValidSignature) Init(stub shim.ChaincodeStubInterface) pb.Response {
+	cCSigMethods = make(map[string][]byte) // FGODINHO
 	logger.Infof("Successfully initialized ESCC")
-
 	return shim.Success(nil)
 }
 
@@ -156,24 +157,30 @@ func (e *EndorserOneValidSignature) Invoke(stub shim.ChaincodeStubInterface) pb.
 
 	// FGODINHO
 	// if it's a system chaincode just go with multisig
-	var sigMethod []byte
+	var currSigMethod []byte
 	if ccid.GetName() == "lscc" || ccid.GetName() == "cscc" {
-		sigMethod = []byte("multisig")
+		currSigMethod = []byte("multisig")
 	} else {
-		// compose chaincode args for get endorsement method
-		ccargs := make([][]byte, 1, 1)
-		ccargs[0] = []byte("getEndorsementMethod")
+		sigMethodForCC := cCSigMethods[ccid.GetName()]
+		if len(sigMethodForCC) > 0 {
+			currSigMethod = sigMethodForCC
+		} else {
+			// compose chaincode args for get endorsement method
+			ccargs := make([][]byte, 1, 1)
+			ccargs[0] = []byte("getEndorsementMethod")
 
-		// we call this function on any contract to find out its signing method and pass it to createproposalresponse
-		sigMethodRsp := stub.InvokeChaincode(ccid.GetName(), ccargs, stub.GetChannelID())
-		if sigMethodRsp.Status != 200 {
-			return shim.Error(fmt.Sprintf("Could not obtain the endorsement method from contract %s on channel %s", ccid.GetName(), stub.GetChannelID()))
+			// we call this function on any contract to find out its signing method and pass it to createproposalresponse
+			sigMethodRsp := stub.InvokeChaincode(ccid.GetName(), ccargs, stub.GetChannelID())
+			if sigMethodRsp.Status != 200 {
+				return shim.Error(fmt.Sprintf("Could not obtain the endorsement method from contract %s on channel %s", ccid.GetName(), stub.GetChannelID()))
+			}
+			currSigMethod = sigMethodRsp.Payload
+			cCSigMethods[ccid.GetName()] = currSigMethod // store for later
 		}
-		sigMethod = sigMethodRsp.Payload
 	}
 
 	// obtain a proposal response
-	presp, err := utils.CreateProposalResponse(hdr, payl, response, results, events, ccid, visibility, signingEndorser, sigMethod)
+	presp, err := utils.CreateProposalResponse(hdr, payl, response, results, events, ccid, visibility, signingEndorser, currSigMethod)
 	if err != nil {
 		return shim.Error(err.Error())
 	}
