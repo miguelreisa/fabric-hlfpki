@@ -26,6 +26,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/common/cauthdsl"
@@ -683,6 +684,14 @@ func verifyThresh(k int, signatures [][]byte, msg []byte) (err error) {
 	groupKeyBytes := []byte(groupKeyEnvVar)
 
 	// open unix domain socket connection
+	intervalEnvVar, isSet := os.LookupEnv("XSP_DIGEST_INTERVAL_MILLIS")
+	var interval time.Duration
+	if !isSet {
+		interval = 200
+	} else {
+		interval, _ = time.ParseDuration(intervalEnvVar)
+	}
+	time.Sleep(interval * time.Millisecond) // sleep 200 millis to avoid overwriting anything the socket may have
 	conn, err := net.Dial("unix", "/tmp/hlf-xsp.sock")
 	if err != nil {
 		return fmt.Errorf("Could not start connection pool to java component: %s", err)
