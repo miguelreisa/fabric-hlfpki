@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -378,7 +379,14 @@ func signThresh(msg []byte) (signature []byte, err error) {
 	}
 
 	// read response from socket
-	bufferRd := make([]byte, 1024)
+	signThreshMtuEnvVar, isSet := os.LookupEnv("PEER_SIGN_THRESHOLD_MTU")
+	var signThreshMtu int
+	if !isSet {
+		signThreshMtu = 4096
+	} else {
+		signThreshMtu, _ = strconv.Atoi(signThreshMtuEnvVar)
+	}
+	bufferRd := make([]byte, signThreshMtu)
 	nr, err := conn.Read(bufferRd)
 	if err != nil {
 		return nil, fmt.Errorf("Unable to read payload from java component: %s", err)
