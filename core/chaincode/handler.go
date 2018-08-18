@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"os"
 	"sync"
 	"time"
 
@@ -1370,7 +1371,15 @@ func (handler *Handler) enterBusyState(e *fsm.Event, state string) {
 			}
 
 			// TODO: Need to handle timeout correctly
-			timeout := time.Duration(30000) * time.Millisecond
+
+			// read response from socket
+			invokeTimeoutEnvVar, isSet := os.LookupEnv("CHAINCODE_INVOKE_TIMEOUT_MILLIS")
+			var timeout time.Duration
+			if !isSet {
+				timeout = time.Duration(30000) * time.Millisecond
+			} else {
+				timeout, _ = time.ParseDuration(invokeTimeoutEnvVar)
+			}
 
 			ccMsg, _ := createCCMessage(pb.ChaincodeMessage_TRANSACTION, calledCcIns.ChainID, msg.Txid, chaincodeInput)
 

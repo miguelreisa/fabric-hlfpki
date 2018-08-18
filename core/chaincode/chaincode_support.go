@@ -19,6 +19,7 @@ package chaincode
 import (
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -176,14 +177,22 @@ func NewChaincodeSupport(ccEndpoint string, userrunsCC bool, ccstartuptimeout ti
 		theChaincodeSupport.keepalive = time.Duration(t) * time.Second
 	}
 
+	// FGODINHO
 	//default chaincode execute timeout is 30 secs
-	execto := time.Duration(30) * time.Second
-	if eto := viper.GetDuration("chaincode.executetimeout"); eto <= time.Duration(1)*time.Second {
-		chaincodeLogger.Errorf("Invalid execute timeout value %s (should be at least 1s); defaulting to %s", eto, execto)
+	invokeTimeoutEnvVar, isSet := os.LookupEnv("CHAINCODE_INVOKE_TIMEOUT_MILLIS")
+	var execto time.Duration
+	if !isSet {
+		execto = time.Duration(30000) * time.Millisecond
 	} else {
-		chaincodeLogger.Debugf("Setting execute timeout value to %s", eto)
-		execto = eto
+		execto, _ = time.ParseDuration(invokeTimeoutEnvVar)
 	}
+
+	// if eto := viper.GetDuration("chaincode.executetimeout"); eto <= time.Duration(1)*time.Second {
+	// 	chaincodeLogger.Errorf("Invalid execute timeout value %s (should be at least 1s); defaulting to %s", eto, execto)
+	// } else {
+	// 	chaincodeLogger.Debugf("Setting execute timeout value to %s", eto)
+	// 	execto = eto
+	// }
 
 	theChaincodeSupport.executetimeout = execto
 
