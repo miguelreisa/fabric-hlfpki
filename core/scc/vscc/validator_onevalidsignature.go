@@ -215,18 +215,18 @@ func (vscc *ValidatorOneValidSignature) Invoke(stub shim.ChaincodeStubInterface)
 			// obtain signatures to feed into verify function
 			// as well as the originally signed data
 			signatures := make([][]byte, 0, len(signatureSet))
-			var digest []byte
+			var msg []byte
 			for _, signedData := range signatureSet {
 				signatures = append(signatures, signedData.Signature)
-				if digest == nil {
-					digest = signedData.Data
-				} else if bytes.Compare(digest, signedData.Data) != 0 {
+				if msg == nil {
+					msg = cap.Action.ProposalResponsePayload
+				} else if bytes.Compare(msg, cap.Action.ProposalResponsePayload) != 0 {
 					shim.Error(fmt.Sprintf("Threshold signature endorsements do not apply to the same data!"))
 				}
 			}
 
 			// verify
-			err = verifyThresh(k, signatures, digest)
+			err = verifyThresh(k, signatures, msg)
 
 			if err != nil {
 				shim.Error(fmt.Sprintf("Error evaluating signatures: %s", err))
