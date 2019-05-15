@@ -17,7 +17,16 @@ limitations under the License.
 package escc
 
 import (
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
 	"fmt"
+	//"github.com/miguelreisa-fabric1.1/fabric-hlfpki/build/docker/gotools/obj/gopath/src/golang.org/x/tools/go/ssa/interp/testdata/src/strings"
+	"strings"
 
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/core/chaincode/shim"
@@ -113,6 +122,65 @@ func (e *EndorserOneValidSignature) Invoke(stub shim.ChaincodeStubInterface) pb.
 
 	if response.Status >= shim.ERRORTHRESHOLD {
 		return shim.Error(fmt.Sprintf("Status code less than %d will be endorsed, received status code: %d", shim.ERRORTHRESHOLD, response.Status))
+	}
+
+	responsePayload := string(response.Payload[:])
+	logger.Debugf("Response Payload", responsePayload)
+
+	if(strings.Contains(responsePayload,"SignCertificate")){
+		pkiClientCert := strings.Split(responsePayload,":")[1]
+		logger.Debugf("Client Cert PEM: ", pkiClientCert)
+
+		//FOR DEV PURPOSES
+		//Generate static key to test if signature is the same when the endorser signs
+		pemString := `-----BEGIN RSA PRIVATE KEY-----
+MIIEpQIBAAKCAQEA0+ZhNo8/p035I8jw9yLWssJMXPMoifNG3mXL5UBByomczWy3
+GMTy8TnIMRM7WwQDamaS0XFXZlKlKWb/yssVseVkqaPZ8EXAWQnGp+yDpozlQVy9
+CPqQMQI1MwFIgSjt6gPvFv7Jg1Eth0iDswAd5Wzt7+edb4Bfd4wP1EHe5WvkauKv
+BZAHzWSbXDQdNP4iZYxmPCDMW8Z1NfXmO1S6zcf4w8kJ72i+IA/NUPug5KhyEM/2
+0k1D8kvcWmfe5IozTrkU7f+pzK1aTRCk8aY/hGPxB1AhFUDtcyLuprVYdFxsrS0i
+TtW7vB8xO/6vyQgd8teoPyHVflxvLGBEv/MGtwIDAQABAoIBAQCcPfuiIh+6Ofkh
+FLHwV+Tc6/0ocDaM+S9hHsgn4qhgMfXHVojvH5FOot9kqByU8LGgC7/n5N2f2gJk
+M8kZ+4KkqFL/7ovs6VF5lYbAHNm5vZvxBPNxomcda9ZUJHcUnVxHt9zcJMPrKrka
+TjKlksl4eEg9I5fnNk2uNT0asfMrT3oIuS+cB/0iBmLGylrMkrijYc6hQLBd7ip3
+WcG/mpOagBAdABLYRP/7AwYywQ+xqdog0DInoiWk08gLfRjQiKHzjAoQaHh6m/P4
+5tz5B+5uIFkD7kp2edWK7csqfUfX/45bEQO/TEGlTzjB0qMwrnU9lV5Pg7AEiEQ4
+BBKKPfhJAoGBAOMEbidto9D/EZLElY8itMotIdiCAqJTC4ClZ8+ayU0Oiq5wChfg
+/EeM7VUW7tMWFzYpBCNiKJ81QxWFDxeDvXReKR6ZZgxGdRjk7Y8HFeuszfnnRnYZ
+f3RMOdTkutu3gFHLcpWS2DRU1p2VnCc1kvIf15/TTlzcoUBKDFIkwW/tAoGBAO7z
+3tNwck2LJZ90F6bP3zm/X1PoZDOb6byxSyV1b4etxPiscFAVR5saKtQJa9N8y296
+7VQit0Qb2ZigJDKcSliZG7TkH0FcLM817oiC0zVVHD1cQUJ84p7qRtptfnINAvpA
+ARxPfmaTdM/jwaidXcF+gmouE4XPrS7EG7802FSzAoGAJDj7vozO+7UHP8zgNEOM
+Z0oGQX6VHwNzLWa3Brgi8ImmdSjpY2ABwQTqhY4wMzwuHfUzdNXft2+PMarWeqEJ
+pLy1gO1nDAReAMfeY9j0lXMwNnTBmGx/GrZi7+ZDLnW8ItD8ioMwvkDfMavCi7sP
+pFSSWi0kLssBa7mk96Jnvw0CgYEAmX74zZQ3KM7QzTwzEUoJGDxxzSHEdE6ceETf
+g+GLUnnyxNdoklkJFX5asriWllVdDXDG0bw3Q74sKln8xrIVJBK+dJXx6fd/JWB8
+qR549JKGwHfpx/8XSIQwHZImnrbzCbRhwkDibpwcdorU1S65klllBzYv/k4o7pi1
+Rj95E/cCgYEAzJdWkCcraSoHLormlaXLGp/oXpubRyM0JT/40pcotwXERpKOLaYK
+VYCew9XWz/TwYn2TawNnA4NPobBR/pdfV4xETWVRDfjKCw3XFBDv2gZsfxCD6YZH
+lvBRsv9yzqClpFvr6SI1gp04fcIXuzJS3miKtOSy+v6w/5Pp+UJCwCc=
+-----END RSA PRIVATE KEY-----`
+
+		block, _ := pem.Decode([]byte(pemString))
+		key, _ := x509.ParsePKCS1PrivateKey(block.Bytes)
+
+		certToSign := []byte (clientCertPem) //Self-Signed Cert
+		hashedCert := sha256.Sum256(certToSign)
+
+
+
+		logger.Debugf("AIAI3")
+
+		signature, signError := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, hashedCert[:])
+
+		if (signError != nil){
+			logger.Debugf("Error while creating signature ", signError.Error())
+		}
+
+		logger.Debugf("AIAI4")
+
+		sig := base64.StdEncoding.EncodeToString(signature)
+		fmt.Printf("EndorserCertSignature: %v\n", sig)
 	}
 
 	// handle simulation results
