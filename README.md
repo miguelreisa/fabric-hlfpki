@@ -2,8 +2,11 @@ Build Docker Images:
 
 1. make docker (creates dockerfiles)
 2. To build for example peer image: In build build/image/peer:
+
   2.1 docker build -t hlf-pki-base-peer . #change hlf-pki-base-peer and the repository for the name you desire
+  
   2.2 docker tag hlf-pki-base-peer:latest migpe/hlf-pki-base-peer:latest
+  
   2.3 docker push migpe/hlf-pki-base-peer:latest
 
 
