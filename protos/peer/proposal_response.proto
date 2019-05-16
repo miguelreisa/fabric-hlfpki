@@ -51,6 +51,10 @@ message ProposalResponse {
 	// The endorsement of the proposal, basically
 	// the endorser's signature over the payload
 	Endorsement endorsement = 6;
+
+	bool ContainsClientCertSignatureByEndorser = 7;
+
+	string ClientCertSignatureByEndorser = 8;
 }
 
 // A response with a representation similar to an HTTP response that can

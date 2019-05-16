@@ -35,6 +35,10 @@ type ProposalResponse struct {
 	// The endorsement of the proposal, basically
 	// the endorser's signature over the payload
 	Endorsement *Endorsement `protobuf:"bytes,6,opt,name=endorsement" json:"endorsement,omitempty"`
+	//
+	ContainsClientCertSignatureByEndorser bool `protobuf:"varint,7,opt,name=containsClientCertSignatureByEndorser" json:"containsClientCertSignatureByEndorser,omitempty"`
+	//
+	ClientCertSignatureByEndorser string `protobuf:"bytes,8,opt,name=clientCertSignatureByEndorser" json:"clientCertSignatureByEndorser,omitempty"`
 }
 
 func (m *ProposalResponse) Reset()                    { *m = ProposalResponse{} }

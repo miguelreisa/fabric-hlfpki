@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/hyperledger/fabric/common/flogging"
 	"net"
 	"os"
 	"strconv"
@@ -38,6 +39,8 @@ import (
 	"github.com/hyperledger/fabric/protos/common"
 	"github.com/hyperledger/fabric/protos/peer"
 )
+
+var logger = flogging.MustGetLogger("txutils")
 
 // GetPayloads get's the underlying payload objects in a TransactionAction
 func GetPayloads(txActions *peer.TransactionAction) (*peer.ChaincodeActionPayload, *peer.ChaincodeAction, error) {
@@ -274,7 +277,8 @@ func CreateSignedTx(proposal *peer.Proposal, signer msp.SigningIdentity, resps .
 }
 
 // CreateProposalResponse creates a proposal response.
-func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Response, results []byte, events []byte, ccid *peer.ChaincodeID, visibility []byte, signingEndorser msp.SigningIdentity, signingMethod []byte) (*peer.ProposalResponse, error) {
+// MIGUEL - Changed args to include if transaction is to sign certificate and hash of the certificate
+func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Response, results []byte, events []byte, ccid *peer.ChaincodeID, visibility []byte, signingEndorser msp.SigningIdentity, signingMethod []byte, transactionToSignCertificate bool, clientCertHashToSign []byte) (*peer.ProposalResponse, error) {
 	hdr, err := GetHeader(hdrbytes)
 	if err != nil {
 		return nil, err
@@ -306,23 +310,53 @@ func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Respons
 	sigMethod := string(signingMethod)
 	// switch between multisig and threshsig
 
+	logger.Debugf("Transaction related to signing certificate ", transactionToSignCertificate)
+
 	var signature []byte
+	var clientCertEndorserSignature string // if transaction is regarding signing a client self-signed certificate
 	if sigMethod == "multisig" {
 		signature, err = signingEndorser.Sign(append(prpBytes, endorser...))
+		// MIGUEL - BEGIN
+		if(transactionToSignCertificate){
+			logger.Debugf("ESCC Signing client certificate")
+			certSignature, err := signingEndorser.Sign(append(clientCertHashToSign, endorser...))
+			if err != nil {
+				return nil, fmt.Errorf("Could not sign a client certificate (PKI Blockchain Component), err %s", err)
+			}
+			clientCertEndorserSignature = base64.StdEncoding.EncodeToString(certSignature)
+			logger.Debugf("Signed client certificate using multisig: %v\n", clientCertEndorserSignature)
+		}
+		// MIGUEL - END
 	} else if sigMethod == "threshsig" {
 		signature, err = signThresh(prpBytes)
+		// MIGUEL - BEGIN
+		if(transactionToSignCertificate){
+			logger.Debugf("ESCC Signing client certificate")
+			certSignature, err := signThresh(clientCertHashToSign)
+			if err != nil {
+				return nil, fmt.Errorf("Could not sign a client certificate (PKI Blockchain Component), err %s", err)
+			}
+			clientCertEndorserSignature = base64.StdEncoding.EncodeToString(certSignature)
+			logger.Debugf("Signed client certificate using threshsig: %v\n", clientCertEndorserSignature)
+		}
+		// MIGUEL - END
 	}
 
 	if err != nil {
 		return nil, fmt.Errorf("Could not sign the proposal response payload, err %s", err)
 	}
 
+	logger.Debugf("Before sending proposal response") //TODO TO REMOVE
+
+	// MIGUEL - Changed Proposal Response to include if contains endorser signature regarding clients certificate and the signature of the certificate
 	resp := &peer.ProposalResponse{
 		// Timestamp: TODO!
 		Version:     1, // TODO: pick right version number
 		Endorsement: &peer.Endorsement{Signature: signature, Endorser: endorser, EndorsementMethod: signingMethod},
 		Payload:     prpBytes,
-		Response:    &peer.Response{Status: 200, Message: "OK"}}
+		Response:    &peer.Response{Status: 200, Message: "OK"},
+		ContainsClientCertSignatureByEndorser: transactionToSignCertificate,
+		ClientCertSignatureByEndorser: clientCertEndorserSignature} //clientCertSignature is not used if transaction is not regarding signing a cert
 
 	return resp, nil
 }
