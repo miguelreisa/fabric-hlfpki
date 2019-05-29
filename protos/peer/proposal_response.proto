@@ -52,9 +52,11 @@ message ProposalResponse {
 	// the endorser's signature over the payload
 	Endorsement endorsement = 6;
 
-	bool ContainsClientCertSignatureByEndorser = 7;
+	bool ContainsClientCertSignatureByEndorser = 7; //miguel
 
-	string ClientCertSignatureByEndorser = 8;
+	bytes ClientCertSignatureByEndorser = 8; //miguel
+
+	string ClientCertEndorserSignatureString = 9; //miguel
 }
 
 // A response with a representation similar to an HTTP response that can

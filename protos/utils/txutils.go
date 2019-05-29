@@ -17,9 +17,15 @@ limitations under the License.
 package utils
 
 import (
+	crypto2 "crypto"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha1"
+	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"github.com/hyperledger/fabric/common/flogging"
@@ -276,9 +282,141 @@ func CreateSignedTx(proposal *peer.Proposal, signer msp.SigningIdentity, resps .
 	return &common.Envelope{Payload: paylBytes, Signature: sig}, nil
 }
 
+// MIGUEL BEGIN
+/**
+// A Signer is can create signatures that verify against a public key.
+// loadPrivateKey loads an parses a PEM encoded private key file.
+func loadPublicKey(path string) (Unsigner, error) {
+
+	pkiPublicKey, isSet := os.LookupEnv("PKI_PUBLIC_KEY")
+	if !isSet {
+		return nil, fmt.Errorf("Could not obtain pki public key from environment variable: PKI_PUBLIC_KEY")
+	}
+
+	pkiPublicKeyPem := strings.Replace(pkiPublicKey, `\n`, "\n", -1) //with break lines
+	return parsePublicKey([]byte(pkiPublicKeyPem))
+
+}
+
+// parsePublicKey parses a PEM encoded private key.
+func parsePublicKey(pemBytes []byte) (Unsigner, error) {
+	block, _ := pem.Decode(pemBytes)
+	if block == nil {
+		return nil, errors.New("ssh: no key found")
+	}
+
+	var rawkey interface{}
+	switch block.Type {
+	case "PUBLIC KEY":
+		rsa, err := x509.ParsePKIXPublicKey(block.Bytes)
+		if err != nil {
+			return nil, err
+		}
+		rawkey = rsa
+	default:
+		return nil, fmt.Errorf("ssh: unsupported key type %q", block.Type)
+	}
+
+	return newUnsignerFromKey(rawkey)
+}
+
+// loadPrivateKey loads an parses a PEM encoded private key file.
+func loadPrivateKey(path string) (Signer, error) {
+	pkiPrivateKey, isSet := os.LookupEnv("PKI_PRIVATE_KEY")
+	if !isSet {
+		return nil, fmt.Errorf("Could not obtain pki private key from environment variable: PKI_PRIVATE_KEY")
+	}
+
+	pkiPrivateKeyPem := strings.Replace(pkiPrivateKey, `\n`, "\n", -1) //with break lines
+	return parsePrivateKey([]byte(pkiPrivateKeyPem))
+}
+
+// parsePublicKey parses a PEM encoded private key.
+func parsePrivateKey(pemBytes []byte) (Signer, error) {
+	block, _ := pem.Decode(pemBytes)
+	if block == nil {
+		return nil, errors.New("ssh: no key found")
+	}
+
+	var rawkey interface{}
+	switch block.Type {
+	case "RSA PRIVATE KEY":
+		rsa, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+		if err != nil {
+			return nil, err
+		}
+		rawkey = rsa
+	default:
+		return nil, fmt.Errorf("ssh: unsupported key type %q", block.Type)
+	}
+	return newSignerFromKey(rawkey)
+}
+
+// A Signer is can create signatures that verify against a public key.
+type Signer interface {
+	// Sign returns raw signature for the given data. This method
+	// will apply the hash specified for the keytype to the data.
+	Sign(data []byte) ([]byte, error)
+}
+
+// A Signer is can create signatures that verify against a public key.
+type Unsigner interface {
+	// Sign returns raw signature for the given data. This method
+	// will apply the hash specified for the keytype to the data.
+	Unsign(data[]byte, sig []byte) error
+}
+
+func newSignerFromKey(k interface{}) (Signer, error) {
+	var sshKey Signer
+	switch t := k.(type) {
+	case *rsa.PrivateKey:
+		sshKey = &rsaPrivateKey{t}
+	default:
+		return nil, fmt.Errorf("ssh: unsupported key type %T", k)
+	}
+	return sshKey, nil
+}
+
+func newUnsignerFromKey(k interface{}) (Unsigner, error) {
+	var sshKey Unsigner
+	switch t := k.(type) {
+	case *rsa.PublicKey:
+		sshKey = &rsaPublicKey{t}
+	default:
+		return nil, fmt.Errorf("ssh: unsupported key type %T", k)
+	}
+	return sshKey, nil
+}
+
+type rsaPublicKey struct {
+	*rsa.PublicKey
+}
+
+type rsaPrivateKey struct {
+	*rsa.PrivateKey
+}
+
+// Sign signs data with rsa-sha256
+func (r *rsaPrivateKey) Sign(data []byte) ([]byte, error) {
+	h := sha256.New()
+	h.Write(data)
+	d := h.Sum(nil)
+	return rsa.SignPKCS1v15(rand.Reader, r.PrivateKey, crypto2.SHA256, d)
+}
+
+// Unsign verifies the message using a rsa-sha256 signature
+func (r *rsaPublicKey) Unsign(message []byte, sig []byte) error {
+	h := sha256.New()
+	h.Write(message)
+	d := h.Sum(nil)
+	return rsa.VerifyPKCS1v15(r.PublicKey, crypto2.SHA256, d, sig)
+}
+
+// /MIGUEL END
+*/
 // CreateProposalResponse creates a proposal response.
 // MIGUEL - Changed args to include if transaction is to sign certificate and hash of the certificate
-func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Response, results []byte, events []byte, ccid *peer.ChaincodeID, visibility []byte, signingEndorser msp.SigningIdentity, signingMethod []byte, transactionToSignCertificate bool, clientCertHashToSign []byte) (*peer.ProposalResponse, error) {
+func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Response, results []byte, events []byte, ccid *peer.ChaincodeID, visibility []byte, signingEndorser msp.SigningIdentity, signingMethod []byte, transactionToSignCertificate bool, certToSign []byte) (*peer.ProposalResponse, error) {
 	hdr, err := GetHeader(hdrbytes)
 	if err != nil {
 		return nil, err
@@ -310,21 +448,40 @@ func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Respons
 	sigMethod := string(signingMethod)
 	// switch between multisig and threshsig
 
-	logger.Debugf("Transaction related to signing certificate ", transactionToSignCertificate)
 
 	var signature []byte
-	var clientCertEndorserSignature string // if transaction is regarding signing a client self-signed certificate
+	var clientCertEndorserSignature []byte // if transaction is regarding signing a client self-signed certificate
+	var clientCertEndorserSignatureString string
 	if sigMethod == "multisig" {
 		signature, err = signingEndorser.Sign(append(prpBytes, endorser...))
-		// MIGUEL - BEGIN
+		// MIGUEL - BEGIN - Sign Client Certificate to send to proxy
 		if(transactionToSignCertificate){
+			logger.Debugf("Transaction related to signing certificate")
 			logger.Debugf("ESCC Signing client certificate")
-			certSignature, err := signingEndorser.Sign(append(clientCertHashToSign, endorser...))
-			if err != nil {
-				return nil, fmt.Errorf("Could not sign a client certificate (PKI Blockchain Component), err %s", err)
+
+			// Obtain private key from environment (public and private key set in docker compose peer config file)
+			pkiPrivateKey, isSet := os.LookupEnv("PKI_PRIVATE_KEY")
+			if !isSet {
+				return nil, fmt.Errorf("Could not obtain pki private key from environment variable: PKI_PRIVATE_KEY")
 			}
-			clientCertEndorserSignature = base64.StdEncoding.EncodeToString(certSignature)
-			logger.Debugf("Signed client certificate using multisig: %v\n", clientCertEndorserSignature)
+
+			pkiPrivateKeyPem := strings.Replace(pkiPrivateKey, `\n`, "\n", -1) //with break lines
+
+			block, _ := pem.Decode([]byte(pkiPrivateKeyPem))
+			key, _ := x509.ParsePKCS1PrivateKey(block.Bytes)
+
+			h := sha256.New()
+			h.Write(certToSign)
+			d := h.Sum(nil)
+
+			clientCertEndorserSignature, err = rsa.SignPKCS1v15(rand.Reader, key, crypto2.SHA256, d)
+			if err != nil {
+				panic(err)
+			}
+
+			clientCertEndorserSignatureString = base64.StdEncoding.EncodeToString(clientCertEndorserSignature)
+
+			fmt.Printf("Signed client certificate using multisig: %v\n\n", clientCertEndorserSignatureString)
 		}
 		// MIGUEL - END
 	} else if sigMethod == "threshsig" {
@@ -332,12 +489,13 @@ func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Respons
 		// MIGUEL - BEGIN
 		if(transactionToSignCertificate){
 			logger.Debugf("ESCC Signing client certificate")
-			certSignature, err := signThresh(clientCertHashToSign)
+			clientCertEndorserSignature, err := signThresh(certToSign)
 			if err != nil {
 				return nil, fmt.Errorf("Could not sign a client certificate (PKI Blockchain Component), err %s", err)
 			}
-			clientCertEndorserSignature = base64.StdEncoding.EncodeToString(certSignature)
+			clientCertEndorserSignatureString = base64.StdEncoding.EncodeToString(clientCertEndorserSignature)
 			logger.Debugf("Signed client certificate using threshsig: %v\n", clientCertEndorserSignature)
+			logger.Debugf("Signed client certificate using threshsig in String: %v\n", clientCertEndorserSignatureString)
 		}
 		// MIGUEL - END
 	}
@@ -345,8 +503,6 @@ func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Respons
 	if err != nil {
 		return nil, fmt.Errorf("Could not sign the proposal response payload, err %s", err)
 	}
-
-	logger.Debugf("Before sending proposal response") //TODO TO REMOVE
 
 	// MIGUEL - Changed Proposal Response to include if contains endorser signature regarding clients certificate and the signature of the certificate
 	resp := &peer.ProposalResponse{
@@ -356,7 +512,8 @@ func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Respons
 		Payload:     prpBytes,
 		Response:    &peer.Response{Status: 200, Message: "OK"},
 		ContainsClientCertSignatureByEndorser: transactionToSignCertificate,
-		ClientCertSignatureByEndorser: clientCertEndorserSignature} //clientCertSignature is not used if transaction is not regarding signing a cert
+		ClientCertSignatureByEndorser: clientCertEndorserSignature,
+		ClientCertEndorserSignatureString: clientCertEndorserSignatureString} //clientCertSignature is not used if transaction is not regarding signing a cert
 
 	return resp, nil
 }
