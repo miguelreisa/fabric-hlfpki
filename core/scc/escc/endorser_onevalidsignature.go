@@ -37,6 +37,7 @@ import (
 
 var logger = flogging.MustGetLogger("escc")
 var cCSigMethods map[string][]byte // FGODINHO
+var PKIcCSigMethods map[string][]byte //MIGUEL (pki signing method of chaincodes)
 
 // EndorserOneValidSignature implements the default endorsement policy, which is to
 // sign the proposal hash and the read-write set
@@ -46,6 +47,7 @@ type EndorserOneValidSignature struct {
 // Init is called once when the chaincode started the first time
 func (e *EndorserOneValidSignature) Init(stub shim.ChaincodeStubInterface) pb.Response {
 	cCSigMethods = make(map[string][]byte) // FGODINHO
+	PKIcCSigMethods = make(map[string][]byte) // MIGUEL
 	logger.Infof("Successfully initialized ESCC")
 	return shim.Success(nil)
 }
@@ -122,6 +124,8 @@ func (e *EndorserOneValidSignature) Invoke(stub shim.ChaincodeStubInterface) pb.
 		return shim.Error(fmt.Sprintf("Status code less than %d will be endorsed, received status code: %d", shim.ERRORTHRESHOLD, response.Status))
 	}
 
+	var currSigMethod []byte
+	var pkiCurrSigMethod []byte
 
 
 	// MIGUEL - BEGIN
@@ -139,6 +143,27 @@ func (e *EndorserOneValidSignature) Invoke(stub shim.ChaincodeStubInterface) pb.
 		logger.Debugf("Endorser signing client certificate: %v\n\n", pkiClientCertToSign)
 
 		certToSign = []byte (pkiClientCertToSign) //Self-Signed Cert
+
+		//Get Certificate Signature Method from the Chaincode that is being used to issue the certificate
+		// (this signature method is only used if it is an endorsement regarding certificate issuing)
+		// compose chaincode args for get endorsement method
+		pkiSigMethodForCC := PKIcCSigMethods[ccid.GetName()]
+		if len(pkiSigMethodForCC) > 0 { //faster (signature type already stored)
+			pkiCurrSigMethod = pkiSigMethodForCC
+		}
+		ccargs := make([][]byte, 1, 1)
+		ccargs[0] = []byte("getPKISignatureMethod")
+
+		// we call this function on any contract to find out its signing method and pass it to createproposalresponse
+		sigMethodRsp := stub.InvokeChaincode(ccid.GetName(), ccargs, stub.GetChannelID())
+		if sigMethodRsp.Status != 200 {
+			logger.Debugf("Could not obtain the endorsement method from contract %s on channel %s", ccid.GetName(), stub.GetChannelID())
+			return shim.Error(fmt.Sprintf("Could not obtain the endorsement method from contract %s on channel %s", ccid.GetName(), stub.GetChannelID()))
+		}
+		pkiCurrSigMethod = sigMethodRsp.Payload
+		PKIcCSigMethods[ccid.GetName()] = pkiSigMethodForCC // store for later and faster use
+
+		logger.Debugf("Certificate signatuer method: %v\n\n", pkiCurrSigMethod)
 	}
 
 	// MIGUEL - END
@@ -187,7 +212,6 @@ func (e *EndorserOneValidSignature) Invoke(stub shim.ChaincodeStubInterface) pb.
 
 	// FGODINHO
 	// if it's a system chaincode just go with multisig
-	var currSigMethod []byte
 	if ccid.GetName() == "lscc" || ccid.GetName() == "cscc" {
 		currSigMethod = []byte("multisig")
 	} else {
@@ -209,11 +233,15 @@ func (e *EndorserOneValidSignature) Invoke(stub shim.ChaincodeStubInterface) pb.
 		}
 	}
 
+
+
 	// obtain a proposal response & MIGUEL (Changed CreateProposalResponse args to include if transaction is to sign certificate and hash of the certificate)
-	presp, err := utils.CreateProposalResponse(hdr, payl, response, results, events, ccid, visibility, signingEndorser, currSigMethod, transactionToSignCertificate, certToSign)
+	presp, err := utils.CreateProposalResponse(hdr, payl, response, results, events, ccid, visibility, signingEndorser, currSigMethod, pkiCurrSigMethod, transactionToSignCertificate, certToSign)
 	if err != nil {
 		return shim.Error(err.Error())
 	}
+
+	logger.Debugf("Signature Method for Transaction: %v\n\n", string(currSigMethod)) //MIGUEL
 
 
 	// /FGODINHO

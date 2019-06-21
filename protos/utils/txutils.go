@@ -416,7 +416,7 @@ func (r *rsaPublicKey) Unsign(message []byte, sig []byte) error {
 */
 // CreateProposalResponse creates a proposal response.
 // MIGUEL - Changed args to include if transaction is to sign certificate and hash of the certificate
-func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Response, results []byte, events []byte, ccid *peer.ChaincodeID, visibility []byte, signingEndorser msp.SigningIdentity, signingMethod []byte, transactionToSignCertificate bool, certToSign []byte) (*peer.ProposalResponse, error) {
+func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Response, results []byte, events []byte, ccid *peer.ChaincodeID, visibility []byte, signingEndorser msp.SigningIdentity, signingMethod []byte, pkiCurrSigMethod []byte, transactionToSignCertificate bool, certToSign []byte) (*peer.ProposalResponse, error) {
 	hdr, err := GetHeader(hdrbytes)
 	if err != nil {
 		return nil, err
@@ -454,8 +454,16 @@ func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Respons
 	var clientCertEndorserSignatureString string
 	if sigMethod == "multisig" {
 		signature, err = signingEndorser.Sign(append(prpBytes, endorser...))
-		// MIGUEL - BEGIN - Sign Client Certificate to send to proxy
-		if(transactionToSignCertificate){
+	} else if sigMethod == "threshsig" {
+		signature, err = signThresh(prpBytes)
+	}
+
+	//MIGUEL BEGIN
+	//Sign certificate if it is a transaction regarding a certificate's signature
+	if(transactionToSignCertificate){
+		pkiSigMethod := string(pkiCurrSigMethod)
+
+		if pkiSigMethod == "multisig" {
 			logger.Debugf("Transaction related to signing certificate")
 			logger.Debugf("ESCC Signing client certificate")
 
@@ -482,23 +490,22 @@ func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Respons
 			clientCertEndorserSignatureString = base64.StdEncoding.EncodeToString(clientCertEndorserSignature)
 
 			fmt.Printf("Signed client certificate using multisig: %v\n\n", clientCertEndorserSignatureString)
-		}
-		// MIGUEL - END
-	} else if sigMethod == "threshsig" {
-		signature, err = signThresh(prpBytes)
-		// MIGUEL - BEGIN
-		if(transactionToSignCertificate){
+		} else if pkiSigMethod == "threshsig" {
 			logger.Debugf("ESCC Signing client certificate")
-			clientCertEndorserSignature, err := signThresh(certToSign)
+			clientCertEndorserSignature, err := signTreshPKI(certToSign)
 			if err != nil {
 				return nil, fmt.Errorf("Could not sign a client certificate (PKI Blockchain Component), err %s", err)
 			}
-			clientCertEndorserSignatureString = base64.StdEncoding.EncodeToString(clientCertEndorserSignature)
+			clientCertEndorserSignatureString = clientCertEndorserSignature
 			logger.Debugf("Signed client certificate using threshsig: %v\n", clientCertEndorserSignature)
 			logger.Debugf("Signed client certificate using threshsig in String: %v\n", clientCertEndorserSignatureString)
+		}else {
+			logger.Debugf("PKI Signature method not recognized: %v\n", pkiSigMethod)
 		}
-		// MIGUEL - END
 	}
+
+
+	//MIGUEL END
 
 	if err != nil {
 		return nil, fmt.Errorf("Could not sign the proposal response payload, err %s", err)
@@ -600,6 +607,88 @@ func signThresh(msg []byte) (signature []byte, err error) {
 
 	return []byte(sigma.Signature), nil
 }
+
+//MIGUEL - BEGIN
+//Used to sign certificates with threshold share key
+func signTreshPKI(msg []byte) (signature string, err error) {
+
+	// first hash the msg
+	hasher := sha1.New()
+	hasher.Write(msg)
+	digest := base64.URLEncoding.EncodeToString(hasher.Sum(nil))
+
+	shareEnvVar, isSet := os.LookupEnv("PKI_THRESH_KEY_SHARE")
+	if !isSet {
+		return "", fmt.Errorf("Could not obtain key share from environment variable: PKI_THRESH_KEY_SHARE")
+	}
+
+	shareBytes := []byte(shareEnvVar)
+
+	// open unix domain socket connection
+	intervalEnvVar, isSet := os.LookupEnv("XSP_DIGEST_INTERVAL_MILLIS")
+	var interval time.Duration
+	if !isSet {
+		interval = 200
+	} else {
+		interval, _ = time.ParseDuration(intervalEnvVar)
+	}
+	time.Sleep(interval * time.Millisecond) // sleep 200 millis to avoid overwriting anything the socket may have
+	conn, err := net.Dial("unix", "/tmp/hlf-xsp.sock")
+	if err != nil {
+		return "", fmt.Errorf("Could not start connection pool to java component: %s", err)
+	}
+
+	// defer connection for closing after sing concludes
+	defer conn.Close()
+
+	// send away the call
+	var bufferWr bytes.Buffer
+	bufferWr.WriteString("__CALL_THRESHSIG_SIGN\n")
+	bufferWr.WriteString("{\"share\":\"")
+	bufferWr.WriteString(string(shareBytes))
+	bufferWr.WriteString("\",\"msg\":\"")
+	bufferWr.WriteString(string(digest))
+	bufferWr.WriteString("\"}")
+	payload := bufferWr.String()
+	_, err = conn.Write([]byte(payload))
+
+	if err != nil {
+		return "", fmt.Errorf("Unable to send payload to java component for signing: %s", err)
+	}
+
+	// read response from socket
+	signThreshMtuEnvVar, isSet := os.LookupEnv("PEER_SIGN_THRESHOLD_MTU")
+	var signThreshMtu int
+	if !isSet {
+		signThreshMtu = 4096
+	} else {
+		signThreshMtu, _ = strconv.Atoi(signThreshMtuEnvVar)
+	}
+	bufferRd := make([]byte, signThreshMtu)
+	nr, err := conn.Read(bufferRd)
+	if err != nil {
+		return "", fmt.Errorf("Unable to read payload from java component: %s", err)
+	}
+
+	// break the response into its parts
+	response := strings.Split(string(bufferRd[:nr]), "\n")
+
+	// check the call
+	if response[0] != "__RETU_THRESHSIG_SIGN" {
+		return "", fmt.Errorf("Wrong response from java component: %s", response[0])
+	}
+
+	// parse sig
+	var sigma xspSignMsg
+	err = json.Unmarshal([]byte(response[1]), &sigma)
+	if err != nil {
+		return "", fmt.Errorf("Unable to parse payload from java component: %s", err)
+	}
+
+	return sigma.Signature, nil
+}
+
+//MIGUEL - END
 
 // CreateProposalResponseFailure creates a proposal response for cases where
 // endorsement proposal fails either due to a endorsement failure or a chaincode
