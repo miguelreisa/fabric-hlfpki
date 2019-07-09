@@ -416,7 +416,7 @@ func (r *rsaPublicKey) Unsign(message []byte, sig []byte) error {
 */
 // CreateProposalResponse creates a proposal response.
 // MIGUEL - Changed args to include if transaction is to sign certificate and hash of the certificate
-func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Response, results []byte, events []byte, ccid *peer.ChaincodeID, visibility []byte, signingEndorser msp.SigningIdentity, signingMethod []byte, pkiCurrSigMethod []byte, transactionToSignCertificate bool, certToSign []byte) (*peer.ProposalResponse, error) {
+func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Response, results []byte, events []byte, ccid *peer.ChaincodeID, visibility []byte, signingEndorser msp.SigningIdentity, signingMethod []byte, pkiCurrSigMethod []byte, transactionToSignCertificate bool, certToSign []byte, transactionToRevokeCertificate bool, certToRevokeBytes []byte) (*peer.ProposalResponse, error) {
 	hdr, err := GetHeader(hdrbytes)
 	if err != nil {
 		return nil, err
@@ -452,6 +452,8 @@ func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Respons
 	var signature []byte
 	var clientCertEndorserSignature []byte // if transaction is regarding signing a client self-signed certificate
 	var clientCertEndorserSignatureString string
+	var crlEndorserSignature []byte
+	var crlEndorserSignatureString string
 	if sigMethod == "multisig" {
 		signature, err = signingEndorser.Sign(append(prpBytes, endorser...))
 	} else if sigMethod == "threshsig" {
@@ -489,7 +491,7 @@ func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Respons
 
 			clientCertEndorserSignatureString = base64.StdEncoding.EncodeToString(clientCertEndorserSignature)
 
-			fmt.Printf("Signed client certificate using multisig: %v\n\n", clientCertEndorserSignatureString)
+			fmt.Printf("Signed client cert using multisig: %v\n\n", clientCertEndorserSignatureString)
 		} else if pkiSigMethod == "threshsig" {
 			logger.Debugf("ESCC Signing client certificate")
 			clientCertEndorserSignature, err := signTreshPKI(certToSign)
@@ -499,6 +501,48 @@ func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Respons
 			clientCertEndorserSignatureString = clientCertEndorserSignature
 			logger.Debugf("Signed client certificate using threshsig: %v\n", clientCertEndorserSignature)
 			logger.Debugf("Signed client certificate using threshsig in String: %v\n", clientCertEndorserSignatureString)
+		}else {
+			logger.Debugf("PKI Signature method not recognized: %v\n", pkiSigMethod)
+		}
+	} else if (transactionToRevokeCertificate){
+		pkiSigMethod := string(pkiCurrSigMethod)
+
+		if pkiSigMethod == "multisig" {
+			logger.Debugf("Transaction related to revoke certificate (escc signing new crl)")
+			logger.Debugf("ESCC Signing new CRL")
+
+			// Obtain private key from environment (public and private key set in docker compose peer config file)
+			pkiPrivateKey, isSet := os.LookupEnv("PKI_PRIVATE_KEY")
+			if !isSet {
+				return nil, fmt.Errorf("Could not obtain pki private key from environment variable: PKI_PRIVATE_KEY")
+			}
+
+			pkiPrivateKeyPem := strings.Replace(pkiPrivateKey, `\n`, "\n", -1) //with break lines
+
+			block, _ := pem.Decode([]byte(pkiPrivateKeyPem))
+			key, _ := x509.ParsePKCS1PrivateKey(block.Bytes)
+
+			h := sha256.New()
+			h.Write(certToRevokeBytes)
+			d := h.Sum(nil)
+
+			crlEndorserSignature, err = rsa.SignPKCS1v15(rand.Reader, key, crypto2.SHA256, d)
+			if err != nil {
+				panic(err)
+			}
+
+			crlEndorserSignatureString = base64.StdEncoding.EncodeToString(crlEndorserSignature)
+
+			fmt.Printf("Signed new crl using multisig: %v\n\n", crlEndorserSignatureString)
+		} else if pkiSigMethod == "threshsig" {
+			logger.Debugf("ESCC Signing client certificate")
+			crlEndorserSignature, err := signTreshPKI(certToRevokeBytes)
+			if err != nil {
+				return nil, fmt.Errorf("Could not sign a new crl (PKI Blockchain Component), err %s", err)
+			}
+			crlEndorserSignatureString = crlEndorserSignature
+			logger.Debugf("Signed new crl using threshsig: %v\n", crlEndorserSignature)
+			logger.Debugf("Signed new crl using threshsig in String: %v\n", crlEndorserSignatureString)
 		}else {
 			logger.Debugf("PKI Signature method not recognized: %v\n", pkiSigMethod)
 		}
@@ -520,7 +564,10 @@ func CreateProposalResponse(hdrbytes []byte, payl []byte, response *peer.Respons
 		Response:    &peer.Response{Status: 200, Message: "OK"},
 		ContainsClientCertSignatureByEndorser: transactionToSignCertificate,
 		ClientCertSignatureByEndorser: clientCertEndorserSignature,
-		ClientCertEndorserSignatureString: clientCertEndorserSignatureString} //clientCertSignature is not used if transaction is not regarding signing a cert
+		ClientCertEndorserSignatureString: clientCertEndorserSignatureString,
+		ContainsCRLSignatureByEndorser: transactionToRevokeCertificate,
+		CRLSignatureByEndorser: crlEndorserSignature,
+		CRLSignatureByEndorserString: crlEndorserSignatureString} //clientCertSignature is not used if transaction is not regarding signing a cert
 
 	return resp, nil
 }

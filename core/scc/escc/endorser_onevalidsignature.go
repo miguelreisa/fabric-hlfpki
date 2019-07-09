@@ -17,6 +17,9 @@ limitations under the License.
 package escc
 
 import (
+	"crypto/x509"
+	"encoding/pem"
+
 	//"crypto/x509"
 	//"encoding/base64"
 	//"encoding/pem"
@@ -131,12 +134,14 @@ func (e *EndorserOneValidSignature) Invoke(stub shim.ChaincodeStubInterface) pb.
 	// MIGUEL - BEGIN
 	responsePayload := string(response.Payload[:])
 	transactionToSignCertificate := false
+	transactionToRevokeCertificate := false
 	var certToSign []byte
+	var crlToSign []byte
 
 	if(strings.Contains(responsePayload,"SignCertificate")){ //chaincode function to sign certificate returns this string so ESCC knows has to sign a certificate
 		transactionToSignCertificate = true
 		pkiClientCert := strings.Split(responsePayload,":")[1]
-		logger.Debugf("Client Cert PEM:", pkiClientCert)
+		logger.Debugf("Client Cert to Sign PEM: ", pkiClientCert)
 
 		pkiClientCertToSign := strings.Replace(string(pkiClientCert), `\n`, "\n", -1)
 
@@ -144,11 +149,11 @@ func (e *EndorserOneValidSignature) Invoke(stub shim.ChaincodeStubInterface) pb.
 
 		certToSign = []byte (pkiClientCertToSign) //Self-Signed Cert
 
-		//Get Certificate Signature Method from the Chaincode that is being used to issue the certificate
-		// (this signature method is only used if it is an endorsement regarding certificate issuing)
+		//Get Certificate Signature Method from the Chaincode that is being used to sign certificates, CRLs and others
+		// (this signature method is only used if it is an endorsement regarding certificate management)
 		// compose chaincode args for get endorsement method
 		pkiSigMethodForCC := PKIcCSigMethods[ccid.GetName()]
-		if len(pkiSigMethodForCC) > 0 { //faster (signature type already stored)
+		if len(pkiSigMethodForCC) > 0 { //faster (signature type already stored) ff
 			pkiCurrSigMethod = pkiSigMethodForCC
 		}
 		ccargs := make([][]byte, 1, 1)
@@ -163,7 +168,63 @@ func (e *EndorserOneValidSignature) Invoke(stub shim.ChaincodeStubInterface) pb.
 		pkiCurrSigMethod = sigMethodRsp.Payload
 		PKIcCSigMethods[ccid.GetName()] = pkiSigMethodForCC // store for later and faster use
 
-		logger.Debugf("Certificate signatuer method: %v\n\n", pkiCurrSigMethod)
+		logger.Debugf("PKI signature method: %v\n\n", pkiCurrSigMethod)
+	} else if (strings.Contains(responsePayload, "RevokeCertificate")) {
+
+		logger.Debug("Transaction related to revoking a certificate")
+
+		crlWithoutBreaklines := strings.Split(responsePayload, ":") [1]
+		crlWithBreaklines := strings.Replace(crlWithoutBreaklines, `\n`, "\n", -1)
+
+		block, _ := pem.Decode([]byte(crlWithBreaklines))
+		crl, err := x509.ParseCRL(block.Bytes)
+
+		if err != nil {
+			logger.Debugf("Error parsing crl")
+		}
+
+		//Just to check if we are able to read the crl info
+		logger.Debugf("CRL Version" + string(crl.TBSCertList.Version))
+		//crlList.
+
+
+		//The smart contract function that returned this "RevokedCertificate:crlPEM" is responsible for all verifications
+		//ESCC just signs the CRL and sends the signature in the response
+
+
+
+
+		////
+		///
+
+
+		transactionToRevokeCertificate = true
+		logger.Debugf("CRL Pem to sign: ", crlWithoutBreaklines)
+
+		crlToSign = []byte (crlWithBreaklines) //CRL, with revoked certificate, to sign
+
+		//Get Certificate Signature Method from the Chaincode that is being used to sign certificates, CRLs and others
+		// (this signature method is only used if it is an endorsement regarding certificate management)
+		// compose chaincode args for get endorsement method
+		pkiSigMethodForCC := PKIcCSigMethods[ccid.GetName()]
+		if len(pkiSigMethodForCC) > 0 { //faster (signature type already stored) ff
+			pkiCurrSigMethod = pkiSigMethodForCC
+		}
+		ccargs := make([][]byte, 1, 1)
+		ccargs[0] = []byte("getPKISignatureMethod")
+
+		// we call this function on any contract to find out its signing method and pass it to createproposalresponse
+		sigMethodRsp := stub.InvokeChaincode(ccid.GetName(), ccargs, stub.GetChannelID())
+		if sigMethodRsp.Status != 200 {
+			logger.Debugf("Could not obtain the endorsement method from contract %s on channel %s", ccid.GetName(), stub.GetChannelID())
+			return shim.Error(fmt.Sprintf("Could not obtain the endorsement method from contract %s on channel %s", ccid.GetName(), stub.GetChannelID()))
+		}
+		pkiCurrSigMethod = sigMethodRsp.Payload
+		PKIcCSigMethods[ccid.GetName()] = pkiSigMethodForCC // store for later and faster use
+
+		logger.Debugf("PKI signature method: %v\n\n", pkiCurrSigMethod)
+
+
 	}
 
 	// MIGUEL - END
@@ -236,7 +297,7 @@ func (e *EndorserOneValidSignature) Invoke(stub shim.ChaincodeStubInterface) pb.
 
 
 	// obtain a proposal response & MIGUEL (Changed CreateProposalResponse args to include if transaction is to sign certificate and hash of the certificate)
-	presp, err := utils.CreateProposalResponse(hdr, payl, response, results, events, ccid, visibility, signingEndorser, currSigMethod, pkiCurrSigMethod, transactionToSignCertificate, certToSign)
+	presp, err := utils.CreateProposalResponse(hdr, payl, response, results, events, ccid, visibility, signingEndorser, currSigMethod, pkiCurrSigMethod, transactionToSignCertificate, certToSign, transactionToRevokeCertificate, crlToSign)
 	if err != nil {
 		return shim.Error(err.Error())
 	}

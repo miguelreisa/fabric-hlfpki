@@ -41,6 +41,12 @@ type ProposalResponse struct {
 	ClientCertSignatureByEndorser []byte `protobuf:"bytes,8,opt,name=clientCertSignatureByEndorser" json:"clientCertSignatureByEndorser,omitempty"`
 	//miguel
 	ClientCertEndorserSignatureString string `protobuf:"bytes,9,opt,name=clientCertEndorserSignatureString" json:"clientCertEndorserSignatureString,omitempty"`
+	//miguel
+	ContainsCRLSignatureByEndorser bool `protobuf:"varint,10,opt,name=containsCRLSignatureByEndorser" json:"containsCRLSignatureByEndorser,omitempty"`
+	//miguel
+	CRLSignatureByEndorser []byte `protobuf:"bytes,11,opt,name=crlSignatureByEndorser" json:"crlSignatureByEndorser,omitempty"`
+	//miguel
+	CRLSignatureByEndorserString string `protobuf:"bytes,12,opt,name=crlSignatureByEndorserString" json:"crlSignatureByEndorserString,omitempty"`
 }
 
 func (m *ProposalResponse) Reset()                    { *m = ProposalResponse{} }

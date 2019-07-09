@@ -57,6 +57,12 @@ message ProposalResponse {
 	bytes ClientCertSignatureByEndorser = 8; //miguel
 
 	string ClientCertEndorserSignatureString = 9; //miguel
+
+	bool ContainsCRLSignatureByEndorser = 10;
+
+	bytes CRLSignatureByEndorser = 11;
+
+	string CRLSignatureByEndorserString = 12;
 }
 
 // A response with a representation similar to an HTTP response that can
