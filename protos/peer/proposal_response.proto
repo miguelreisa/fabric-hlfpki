@@ -58,11 +58,12 @@ message ProposalResponse {
 
 	string ClientCertEndorserSignatureString = 9; //miguel
 
-	bool ContainsCRLSignatureByEndorser = 10;
+    //Crl related variables (e.g. signatures) are also being sent in the variables above (they are related to PKI signatures)
+	//bool ContainsCRLSignatureByEndorser = 10;
 
-	bytes CRLSignatureByEndorser = 11;
+	//bytes CRLSignatureByEndorser = 11;
 
-	string CRLSignatureByEndorserString = 12;
+	//string CRLSignatureByEndorserString = 12;
 }
 
 // A response with a representation similar to an HTTP response that can

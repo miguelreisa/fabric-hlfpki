@@ -76,6 +76,11 @@ func (e *EndorserOneValidSignature) Init(stub shim.ChaincodeStubInterface) pb.Re
 // silently discarded: the only state changes that will be persisted if
 // this endorsement is successful is what we are about to sign, which by
 // definition can't be a state change of our own.
+const (
+	BLOCKCHAIN_ENABLED_PKI_SIGN_CERTIFICATE_OP = "BLOCKCHAIN_ENABLED_PKI_SIGN_CERTIFICATE_OP"
+	BLOCKCHAIN_ENABLED_PKI_SIGN_CRL_OP  = "BLOCKCHAIN_ENABLED_PKI_SIGN_CRL_OP"
+	BLOCKCHAIN_ENABLED_PKI_SIGN_OCSP_RESPONSE_OP = "BLOCKCHAIN_ENABLED_PKI_SIGN_OCSP_RESPONSE_OP"
+)
 func (e *EndorserOneValidSignature) Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 	args := stub.GetArgs()
 	if len(args) < 6 {
@@ -133,13 +138,15 @@ func (e *EndorserOneValidSignature) Invoke(stub shim.ChaincodeStubInterface) pb.
 
 	// MIGUEL - BEGIN
 	responsePayload := string(response.Payload[:])
-	transactionToSignCertificate := false
-	transactionToRevokeCertificate := false
-	var certToSign []byte
-	var crlToSign []byte
+	blockchainEnabledPKIRelatedTrans := false
+	//transactionToRevokeCertificate := false
+	var pkiContentToSign []byte
+	var blockcblockchainEnabledPKIOperation string
+	//var crlToSign []byte
 
 	if(strings.Contains(responsePayload,"SignCertificate")){ //chaincode function to sign certificate returns this string so ESCC knows has to sign a certificate
-		transactionToSignCertificate = true
+		blockchainEnabledPKIRelatedTrans = true
+		blockcblockchainEnabledPKIOperation = BLOCKCHAIN_ENABLED_PKI_SIGN_CERTIFICATE_OP
 		pkiClientCert := strings.Split(responsePayload,":")[1]
 		logger.Debugf("Client Cert to Sign PEM: ", pkiClientCert)
 
@@ -147,7 +154,7 @@ func (e *EndorserOneValidSignature) Invoke(stub shim.ChaincodeStubInterface) pb.
 
 		logger.Debugf("Endorser signing client certificate: %v\n\n", pkiClientCertToSign)
 
-		certToSign = []byte (pkiClientCertToSign) //Self-Signed Cert
+		pkiContentToSign = []byte (pkiClientCertToSign) //Self-Signed Cert
 
 		//Get Certificate Signature Method from the Chaincode that is being used to sign certificates, CRLs and others
 		// (this signature method is only used if it is an endorsement regarding certificate management)
@@ -169,6 +176,36 @@ func (e *EndorserOneValidSignature) Invoke(stub shim.ChaincodeStubInterface) pb.
 		PKIcCSigMethods[ccid.GetName()] = pkiSigMethodForCC // store for later and faster use
 
 		logger.Debugf("PKI signature method: %v\n\n", pkiCurrSigMethod)
+	} else if (strings.Contains(responsePayload, "ocspCertStatus")){ //OCSP Response
+		logger.Debugf("Transaction related to OCSP Status. Trying to sign OCSP Response")
+		blockchainEnabledPKIRelatedTrans = true
+		blockcblockchainEnabledPKIOperation = BLOCKCHAIN_ENABLED_PKI_SIGN_OCSP_RESPONSE_OP
+		logger.Debugf("OCSP Response to sign: ", responsePayload)
+
+		pkiContentToSign = []byte (responsePayload) //CRL, with revoked certificate, to sign
+
+		//Get Certificate Signature Method from the Chaincode that is being used to sign certificates, CRLs and others
+		// (this signature method is only used if it is an endorsement regarding certificate management)
+		// compose chaincode args for get endorsement method
+		pkiSigMethodForCC := PKIcCSigMethods[ccid.GetName()]
+		if len(pkiSigMethodForCC) > 0 { //faster (signature type already stored) ff
+			pkiCurrSigMethod = pkiSigMethodForCC
+		}
+		ccargs := make([][]byte, 1, 1)
+		ccargs[0] = []byte("getPKISignatureMethod")
+
+		// we call this function on any contract to find out its signing method and pass it to createproposalresponse
+		sigMethodRsp := stub.InvokeChaincode(ccid.GetName(), ccargs, stub.GetChannelID())
+		if sigMethodRsp.Status != 200 {
+			logger.Debugf("Could not obtain the endorsement method from contract %s on channel %s", ccid.GetName(), stub.GetChannelID())
+			return shim.Error(fmt.Sprintf("Could not obtain the endorsement method from contract %s on channel %s", ccid.GetName(), stub.GetChannelID()))
+		}
+		pkiCurrSigMethod = sigMethodRsp.Payload
+		PKIcCSigMethods[ccid.GetName()] = pkiSigMethodForCC // store for later and faster use
+
+		logger.Debugf("PKI signature method: %v\n\n", pkiCurrSigMethod)
+
+
 	} else if (strings.Contains(responsePayload, "RevokeCertificate")) {
 
 		logger.Debug("Transaction related to revoking a certificate")
@@ -198,10 +235,11 @@ func (e *EndorserOneValidSignature) Invoke(stub shim.ChaincodeStubInterface) pb.
 		///
 
 
-		transactionToRevokeCertificate = true
+		blockchainEnabledPKIRelatedTrans = true
+		blockcblockchainEnabledPKIOperation = BLOCKCHAIN_ENABLED_PKI_SIGN_CRL_OP
 		logger.Debugf("CRL Pem to sign: ", crlWithoutBreaklines)
 
-		crlToSign = []byte (crlWithBreaklines) //CRL, with revoked certificate, to sign
+		pkiContentToSign = []byte (crlWithBreaklines) //CRL, with revoked certificate, to sign
 
 		//Get Certificate Signature Method from the Chaincode that is being used to sign certificates, CRLs and others
 		// (this signature method is only used if it is an endorsement regarding certificate management)
@@ -297,7 +335,8 @@ func (e *EndorserOneValidSignature) Invoke(stub shim.ChaincodeStubInterface) pb.
 
 
 	// obtain a proposal response & MIGUEL (Changed CreateProposalResponse args to include if transaction is to sign certificate and hash of the certificate)
-	presp, err := utils.CreateProposalResponse(hdr, payl, response, results, events, ccid, visibility, signingEndorser, currSigMethod, pkiCurrSigMethod, transactionToSignCertificate, certToSign, transactionToRevokeCertificate, crlToSign)
+	// this is to use pki signatures in different vars (e.g. crl) presp, err := utils.CreateProposalResponse(hdr, payl, response, results, events, ccid, visibility, signingEndorser, currSigMethod, pkiCurrSigMethod, transactionToSignCertificate, certToSign, transactionToRevokeCertificate, crlToSign)
+	presp, err := utils.CreateProposalResponse(hdr, payl, response, results, events, ccid, visibility, signingEndorser, currSigMethod, pkiCurrSigMethod, blockchainEnabledPKIRelatedTrans, blockcblockchainEnabledPKIOperation, pkiContentToSign)
 	if err != nil {
 		return shim.Error(err.Error())
 	}
